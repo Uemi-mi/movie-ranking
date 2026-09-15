@@ -1,68 +1,29 @@
-import fs from "fs";
-import path from "path";
 import type { MetadataRoute } from "next";
 
 const BASE_URL = "https://movie-ranking-rouge.vercel.app";
 
-type Movie = {
-  id: number;
-};
-
-export default function sitemap(): MetadataRoute.Sitemap {
-  const dataDirectory = path.join(
-    process.cwd(),
-    "app",
-    "data",
-    "movies"
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const years = Array.from(
+    { length: 2026 - 1980 + 1 },
+    (_, i) => 1980 + i
   );
 
-  const urls: MetadataRoute.Sitemap = [
-    {
-      url: BASE_URL,
-      lastModified: new Date(),
-      changeFrequency: "daily",
-      priority: 1,
-    },
-  ];
+  const movieUrls: MetadataRoute.Sitemap = [];
 
-  if (!fs.existsSync(dataDirectory)) {
-    return urls;
-  }
-
-  const files = fs
-    .readdirSync(dataDirectory)
-    .filter(
-      (file) =>
-        file.endsWith(".json") &&
-        /^\d{4}\.json$/.test(file)
-    );
-
-  for (const file of files) {
-    const filePath = path.join(dataDirectory, file);
-
+  for (const year of years) {
     try {
-      const data = JSON.parse(
-        fs.readFileSync(filePath, "utf-8")
-      );
+      const data = await import(`./data/movies/${year}.json`);
 
-      let movies: Movie[] = [];
-
-      // 現在のJSON形式
-      if (Array.isArray(data)) {
-        movies = data;
-      }
-
-      // 以前のJSON形式にも対応
-      else if (data && Array.isArray(data.movies)) {
-        movies = data.movies;
-      }
+      const movies = Array.isArray(data.default)
+        ? data.default
+        : Array.isArray(data.default?.movies)
+        ? data.default.movies
+        : [];
 
       for (const movie of movies) {
-        if (!movie.id) {
-          continue;
-        }
+        if (!movie.id) continue;
 
-        urls.push({
+        movieUrls.push({
           url: `${BASE_URL}/movies/${movie.id}`,
           lastModified: new Date(),
           changeFrequency: "monthly",
@@ -70,12 +31,17 @@ export default function sitemap(): MetadataRoute.Sitemap {
         });
       }
     } catch (error) {
-      console.error(
-        `Sitemap error: ${file}`,
-        error
-      );
+      console.error(`Sitemap error: ${year}`, error);
     }
   }
 
-  return urls;
+  return [
+    {
+      url: BASE_URL,
+      lastModified: new Date(),
+      changeFrequency: "daily",
+      priority: 1,
+    },
+    ...movieUrls,
+  ];
 }
