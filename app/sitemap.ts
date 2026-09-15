@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-const BASE_URL = "https://movie-ranking-rouge.vercel.app";
+const BASE_URL = "https://movie-ranking-new.vercel.app";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const years = Array.from(
