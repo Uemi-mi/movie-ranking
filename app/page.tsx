@@ -230,27 +230,28 @@ export default async function Home({
 
   function pagination(position: "top" | "bottom") {
     if (totalPages <= 1) return null;
+    const pageHref = (page: number) => `${rankingUrl(mode, selectedYear, page)}#ranking-heading`;
     const buttonClass = "inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-bold text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-red-500";
     return (
       <nav aria-label={position === "top" ? "一覧上部のページ移動" : "一覧下部のページ移動"} className="my-6 space-y-4">
         <div className="flex flex-wrap items-center justify-center gap-2">
-          {currentPage > 1 && <Link href={rankingUrl(mode, selectedYear, 1)} className={buttonClass}>先頭</Link>}
-          {currentPage > 1 && <Link href={rankingUrl(mode, selectedYear, currentPage - 1)} className={buttonClass} rel="prev">← 前へ</Link>}
+          {currentPage > 1 && <Link href={pageHref(1)} className={buttonClass}>先頭</Link>}
+          {currentPage > 1 && <Link href={pageHref(currentPage - 1)} className={buttonClass} rel="prev">← 前へ</Link>}
           {visiblePages.map((page, index) => (
             <span key={page} className="inline-flex items-center gap-2">
               {index > 0 && page - visiblePages[index - 1] > 1 && <span className="text-white/40" aria-hidden="true">…</span>}
               <Link
-                href={rankingUrl(mode, selectedYear, page)}
+                href={pageHref(page)}
                 aria-label={`${page}ページ目`}
                 aria-current={page === currentPage ? "page" : undefined}
                 className={page === currentPage ? "inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-red-600 px-3 text-sm font-bold text-white" : buttonClass}
               >{page}</Link>
             </span>
           ))}
-          {currentPage < totalPages && <Link href={rankingUrl(mode, selectedYear, currentPage + 1)} className={buttonClass} rel="next">次へ →</Link>}
-          {currentPage < totalPages && <Link href={rankingUrl(mode, selectedYear, totalPages)} className={buttonClass}>最後</Link>}
+          {currentPage < totalPages && <Link href={pageHref(currentPage + 1)} className={buttonClass} rel="next">次へ →</Link>}
+          {currentPage < totalPages && <Link href={pageHref(totalPages)} className={buttonClass}>最後</Link>}
         </div>
-        <form action="/" method="get" className="flex flex-wrap items-center justify-center gap-2 text-sm text-white/60">
+        <form action="/#ranking-heading" method="get" className="flex flex-wrap items-center justify-center gap-2 text-sm text-white/60">
           {mode === "year" && <><input type="hidden" name="mode" value="year" /><input type="hidden" name="year" value={selectedYear ?? defaultYear} /></>}
           {query && <input type="hidden" name="q" value={query} />}
           <span>{currentPage} / {totalPages} ページ</span>
@@ -404,7 +405,7 @@ export default async function Home({
 
       {/* Ranking */}
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-6 flex items-end justify-between gap-4">
+        <div id="ranking-heading" className="mb-6 flex scroll-mt-20 items-end justify-between gap-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-red-400">
               {mode === "all"
