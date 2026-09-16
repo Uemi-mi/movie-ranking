@@ -103,7 +103,31 @@ function normalizeTitle(value: string) {
   return value.normalize("NFKC").toLowerCase()
     .replace(/[ぁ-ゖ]/g, (character) =>
       String.fromCharCode(character.charCodeAt(0) + 0x60))
-    .replace(/\s+/g, "");
+    .replace(/[\s\p{P}\p{S}]/gu, "");
+}
+
+// 辞書を使わず、部分一致と文字順を保ったあいまい一致で検索。
+function matchesTitle(title: string, query: string) {
+  const target = Array.from(normalizeTitle(title));
+  const needle = Array.from(normalizeTitle(query));
+  if (needle.length === 0) return true;
+  if (target.join("").includes(needle.join(""))) return true;
+
+  // 1〜2文字は一致が広がりすぎるため連続した部分一致だけにする。
+  if (needle.length < 3) return false;
+
+  // 入力文字を全て同じ順番で含む場合に一致。
+  // 離れすぎた文字の偶然の一致は除外する。
+  const maxSpan = Math.ceil(needle.length * 2.5);
+  for (let start = 0; start < target.length; start++) {
+    if (target[start] !== needle[0]) continue;
+    let matched = 1;
+    for (let end = start + 1; end < target.length && end - start < maxSpan; end++) {
+      if (target[end] === needle[matched]) matched++;
+      if (matched === needle.length) return true;
+    }
+  }
+  return false;
 }
 
 export default async function Home({
@@ -118,7 +142,6 @@ export default async function Home({
 }) {
   const params = await searchParams;
   const query = (Array.isArray(params.q) ? params.q[0] ?? "" : params.q ?? "").trim();
-  const normalizedQuery = normalizeTitle(query);
 
   function rankingUrl(targetMode: "all" | "year", year: number | null, page = 1, term = query) {
     const values = new URLSearchParams();
@@ -167,7 +190,7 @@ export default async function Home({
   }
 
   movies = movies.filter((movie) =>
-    normalizeTitle(movie.title).includes(normalizedQuery)
+    matchesTitle(movie.title, query)
   ).sort((a, b) => b.revenue - a.revenue);
 
   const pageSize = 20;
@@ -196,6 +219,48 @@ export default async function Home({
   const years = allYearData
     .map((data) => data.year)
     .sort((a, b) => b - a);
+
+  const returnTo = rankingUrl(mode, selectedYear, currentPage);
+  const visiblePages = Array.from(new Set([
+    1,
+    ...Array.from({ length: 5 }, (_, index) => currentPage + index - 2)
+      .filter((page) => page >= 1 && page <= totalPages),
+    totalPages,
+  ])).sort((a, b) => a - b);
+
+  function pagination(position: "top" | "bottom") {
+    if (totalPages <= 1) return null;
+    const buttonClass = "inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-bold text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-red-500";
+    return (
+      <nav aria-label={position === "top" ? "一覧上部のページ移動" : "一覧下部のページ移動"} className="my-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {currentPage > 1 && <Link href={rankingUrl(mode, selectedYear, 1)} className={buttonClass}>先頭</Link>}
+          {currentPage > 1 && <Link href={rankingUrl(mode, selectedYear, currentPage - 1)} className={buttonClass} rel="prev">← 前へ</Link>}
+          {visiblePages.map((page, index) => (
+            <span key={page} className="inline-flex items-center gap-2">
+              {index > 0 && page - visiblePages[index - 1] > 1 && <span className="text-white/40" aria-hidden="true">…</span>}
+              <Link
+                href={rankingUrl(mode, selectedYear, page)}
+                aria-label={`${page}ページ目`}
+                aria-current={page === currentPage ? "page" : undefined}
+                className={page === currentPage ? "inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-red-600 px-3 text-sm font-bold text-white" : buttonClass}
+              >{page}</Link>
+            </span>
+          ))}
+          {currentPage < totalPages && <Link href={rankingUrl(mode, selectedYear, currentPage + 1)} className={buttonClass} rel="next">次へ →</Link>}
+          {currentPage < totalPages && <Link href={rankingUrl(mode, selectedYear, totalPages)} className={buttonClass}>最後</Link>}
+        </div>
+        <form action="/" method="get" className="flex flex-wrap items-center justify-center gap-2 text-sm text-white/60">
+          {mode === "year" && <><input type="hidden" name="mode" value="year" /><input type="hidden" name="year" value={selectedYear ?? defaultYear} /></>}
+          {query && <input type="hidden" name="q" value={query} />}
+          <span>{currentPage} / {totalPages} ページ</span>
+          <label htmlFor={`jump-${position}`} className="sm:ml-3">移動先</label>
+          <input key={`${currentPage}-${query}-${selectedYear}`} id={`jump-${position}`} name="page" type="number" min={1} max={totalPages} step={1} required defaultValue={currentPage} className="w-20 rounded-xl border border-white/20 bg-neutral-950 px-3 py-2 text-white" />
+          <button type="submit" className={buttonClass}>移動</button>
+        </form>
+      </nav>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white">
@@ -332,7 +397,7 @@ export default async function Home({
           </div>
           <p id="movie-search-help" className="mt-3 text-xs leading-5 text-white/50">
             {mode === "year" ? `${selectedYear}年の掲載作品から検索します。` : "全ての年の掲載作品から検索します。"}
-            作品名の一部でも検索できます。
+            作品名の一部や、文字を省略した「ハリポタ」「ワイスピ」などでも検索できます。
           </p>
         </form>
       </section>
@@ -361,6 +426,8 @@ export default async function Home({
           </div>
         </div>
 
+        {pagination("top")}
+
         {displayedMovies.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-12 text-center">
             <p className="text-white/50">
@@ -375,8 +442,9 @@ export default async function Home({
               return (
                 <Link
                   key={`${movie.id}-${rank}`}
-                  href={`/movies/${movie.id}`}
-                  className="group flex gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3 transition hover:border-white/20 hover:bg-white/[0.06] sm:gap-5 sm:p-4"
+                  id={`movie-${movie.id}`}
+                  href={`/movies/${movie.id}?returnTo=${encodeURIComponent(`${returnTo}#movie-${movie.id}`)}`}
+                  className="group scroll-mt-24 flex gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3 transition hover:border-white/20 hover:bg-white/[0.06] sm:gap-5 sm:p-4"
                 >
                   {/* Rank */}
                   <div className="flex w-8 shrink-0 items-start justify-center pt-2 sm:w-10">
@@ -448,36 +516,7 @@ export default async function Home({
           </div>
         )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="mt-8 flex items-center justify-center gap-2">
-            {currentPage > 1 && (
-              <Link
-                href={
-                  rankingUrl(mode, selectedYear, currentPage - 1)
-                }
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white/70 hover:bg-white/10 hover:text-white"
-              >
-                ←
-              </Link>
-            )}
-
-            <span className="px-4 text-sm font-bold text-white/50">
-              {currentPage} / {totalPages}
-            </span>
-
-            {currentPage < totalPages && (
-              <Link
-                href={
-                  rankingUrl(mode, selectedYear, currentPage + 1)
-                }
-                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white/70 hover:bg-white/10 hover:text-white"
-              >
-                →
-              </Link>
-            )}
-          </div>
-        )}
+        {pagination("bottom")}
       </section>
 
       {/* Footer */}

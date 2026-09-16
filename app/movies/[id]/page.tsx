@@ -185,12 +185,34 @@ function formatRuntime(runtime: number | null) {
    ページ
 ========================= */
 
+// 外部URLへの誘導を防ぎ、ランキングの条件だけを引き継ぐ。
+function getReturnUrl(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw || !/^\/(?:\?|#|$)/.test(raw)) return "/";
+  try {
+    const url = new URL(raw, "https://ranking.local");
+    if (url.origin !== "https://ranking.local" || url.pathname !== "/") return "/";
+    const query = new URLSearchParams();
+    for (const key of ["mode", "year", "q", "page"]) {
+      const value = url.searchParams.get(key);
+      if (value !== null) query.set(key, value);
+    }
+    const hash = /^#movie-\d+$/.test(url.hash) ? url.hash : "";
+    return `/${query.size ? `?${query.toString()}` : ""}${hash}`;
+  } catch {
+    return "/";
+  }
+}
+
 export default async function MovieDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ returnTo?: string | string[] }>;
 }) {
   const { id } = await params;
+  const returnUrl = getReturnUrl((await searchParams).returnTo);
 
   let movie: Movie | null = null;
   let error = "";
@@ -228,7 +250,7 @@ export default async function MovieDetailPage({
           </p>
 
           <Link
-            href="/"
+            href={returnUrl}
             className="mt-8 inline-block rounded-xl bg-black px-6 py-3 font-bold text-white"
           >
             ランキングに戻る
@@ -260,7 +282,7 @@ export default async function MovieDetailPage({
       <div className="mx-auto max-w-6xl px-6 py-10">
         {/* 戻る */}
         <Link
-          href="/"
+          href={returnUrl}
           className="text-sm font-bold text-gray-500 hover:text-black"
         >
           ← ランキングに戻る
