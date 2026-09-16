@@ -98,6 +98,14 @@ function formatRevenue(revenue: number) {
   return `$${revenue.toLocaleString()}`;
 }
 
+// 表記の揺れ（全角・半角、大文字・小文字、ひらがな・カタカナ）を吸収。
+function normalizeTitle(value: string) {
+  return value.normalize("NFKC").toLowerCase()
+    .replace(/[ぁ-ゖ]/g, (character) =>
+      String.fromCharCode(character.charCodeAt(0) + 0x60))
+    .replace(/\s+/g, "");
+}
+
 export default async function Home({
   searchParams,
 }: {
@@ -105,9 +113,23 @@ export default async function Home({
     mode?: string;
     year?: string;
     page?: string;
+    q?: string | string[];
   }>;
 }) {
   const params = await searchParams;
+  const query = (Array.isArray(params.q) ? params.q[0] ?? "" : params.q ?? "").trim();
+  const normalizedQuery = normalizeTitle(query);
+
+  function rankingUrl(targetMode: "all" | "year", year: number | null, page = 1, term = query) {
+    const values = new URLSearchParams();
+    if (targetMode === "year" && year !== null) {
+      values.set("mode", "year");
+      values.set("year", String(year));
+    }
+    if (term) values.set("q", term);
+    if (page > 1) values.set("page", String(page));
+    return values.size ? `/?${values.toString()}` : "/";
+  }
 
   const allYearData = loadAllMovies();
 
@@ -143,6 +165,10 @@ export default async function Home({
 
     movies = yearData?.movies ?? [];
   }
+
+  movies = movies.filter((movie) =>
+    normalizeTitle(movie.title).includes(normalizedQuery)
+  ).sort((a, b) => b.revenue - a.revenue);
 
   const pageSize = 20;
 
@@ -216,7 +242,7 @@ export default async function Home({
       <section className="mx-auto max-w-7xl px-4 pt-8 sm:px-6 lg:px-8">
         <div className="flex flex-wrap gap-3">
           <Link
-            href="/"
+            href={rankingUrl("all", null)}
             className={`rounded-full border px-5 py-2.5 text-sm font-bold transition ${
               mode === "all"
                 ? "border-red-500 bg-red-500 text-white"
@@ -227,9 +253,7 @@ export default async function Home({
           </Link>
 
           <Link
-            href={`/?mode=year&year=${
-              selectedYear ?? defaultYear
-            }`}
+            href={rankingUrl("year", selectedYear ?? defaultYear)}
             className={`rounded-full border px-5 py-2.5 text-sm font-bold transition ${
               mode === "year"
                 ? "border-red-500 bg-red-500 text-white"
@@ -259,7 +283,7 @@ export default async function Home({
               {years.map((year) => (
                 <Link
                   key={year}
-                  href={`/?mode=year&year=${year}`}
+                  href={rankingUrl("year", year)}
                   className={`min-w-[72px] rounded-xl border px-3 py-2 text-center text-sm font-bold transition ${
                     year === selectedYear
                       ? "border-red-500 bg-red-500 text-white"
@@ -274,6 +298,45 @@ export default async function Home({
         </section>
       )}
 
+      {/* Search */}
+      <section className="mx-auto w-full max-w-7xl px-4 pt-6 sm:px-6 lg:px-8">
+        <form action="/" method="get" role="search" className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+          {mode === "year" && (
+            <>
+              <input type="hidden" name="mode" value="year" />
+              <input type="hidden" name="year" value={selectedYear ?? defaultYear} />
+            </>
+          )}
+          <label htmlFor="movie-search" className="mb-3 block text-sm font-bold text-white/80">
+            作品名で検索
+          </label>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <input
+              key={`${mode}-${selectedYear}-${query}`}
+              id="movie-search"
+              type="search"
+              name="q"
+              defaultValue={query}
+              placeholder="例：ハリー・ポッター"
+              aria-describedby="movie-search-help"
+              className="min-w-0 flex-1 rounded-xl border border-white/20 bg-neutral-950 px-4 py-3 text-base text-white placeholder:text-white/35 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+            />
+            <button type="submit" className="rounded-xl bg-red-600 px-6 py-3 text-sm font-bold text-white transition hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+              検索
+            </button>
+            {query && (
+              <Link href={rankingUrl(mode, selectedYear, 1, "")} className="rounded-xl border border-white/15 px-4 py-3 text-center text-sm text-white/70 hover:bg-white/10">
+                解除
+              </Link>
+            )}
+          </div>
+          <p id="movie-search-help" className="mt-3 text-xs leading-5 text-white/50">
+            {mode === "year" ? `${selectedYear}年の掲載作品から検索します。` : "全ての年の掲載作品から検索します。"}
+            作品名の一部でも検索できます。
+          </p>
+        </form>
+      </section>
+
       {/* Ranking */}
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex items-end justify-between gap-4">
@@ -284,10 +347,12 @@ export default async function Home({
                 : `${selectedYear} Ranking`}
             </p>
 
-            <h2 className="mt-1 text-2xl font-black sm:text-3xl">
-              {mode === "all"
-                ? "全ての年の総合ランキング"
-                : `${selectedYear}年 公開作品`}
+            <h2 className="mt-1 break-words text-2xl font-black sm:text-3xl">
+              {query
+                ? `「${query}」の検索結果`
+                : mode === "all"
+                  ? "全ての年の総合ランキング"
+                  : `${selectedYear}年 公開作品`}
             </h2>
           </div>
 
@@ -299,7 +364,7 @@ export default async function Home({
         {displayedMovies.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-12 text-center">
             <p className="text-white/50">
-              この年代の作品はありません。
+              {query ? "該当する作品がありません。作品名を短くするか、別の表記でお試しください。" : "この年代の作品はありません。"}
             </p>
           </div>
         ) : (
@@ -389,11 +454,7 @@ export default async function Home({
             {currentPage > 1 && (
               <Link
                 href={
-                  mode === "all"
-                    ? `/?page=${currentPage - 1}`
-                    : `/?mode=year&year=${selectedYear}&page=${
-                        currentPage - 1
-                      }`
+                  rankingUrl(mode, selectedYear, currentPage - 1)
                 }
                 className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white/70 hover:bg-white/10 hover:text-white"
               >
@@ -408,11 +469,7 @@ export default async function Home({
             {currentPage < totalPages && (
               <Link
                 href={
-                  mode === "all"
-                    ? `/?page=${currentPage + 1}`
-                    : `/?mode=year&year=${selectedYear}&page=${
-                        currentPage + 1
-                      }`
+                  rankingUrl(mode, selectedYear, currentPage + 1)
                 }
                 className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white/70 hover:bg-white/10 hover:text-white"
               >
